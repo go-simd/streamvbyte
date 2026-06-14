@@ -48,6 +48,19 @@ func BenchmarkDecode(b *testing.B) {
 	}
 }
 
+// BenchmarkEncodeScalar measures the portable encode path on the same data, so
+// the SIMD compaction speedup is visible on architectures with a kernel.
+func BenchmarkEncodeScalar(b *testing.B) {
+	rng := rand.New(rand.NewSource(1))
+	src := benchData(4096, rng)
+	dst := make([]byte, EncodedMaxLen(len(src)))
+	b.SetBytes(int64(len(src) * 4))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		encodeTail(dst, src, len(src), 0, 0)
+	}
+}
+
 // BenchmarkDecodeScalar measures the portable path on the same data, so the
 // SIMD speedup is visible on architectures with a kernel.
 func BenchmarkDecodeScalar(b *testing.B) {

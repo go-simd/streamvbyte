@@ -1,21 +1,26 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-simd/brand/main/social/go-simd.png" alt="go-simd/streamvbyte" width="720"></p>
+
 # streamvbyte
 
 [![ci](https://github.com/go-simd/streamvbyte/actions/workflows/ci.yml/badge.svg)](https://github.com/go-simd/streamvbyte/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/go-simd/streamvbyte/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-simd/streamvbyte.svg)](https://pkg.go.dev/github.com/go-simd/streamvbyte)
 
-Pure-Go **Stream VByte** integer (`uint32`) compression with a SIMD decoder on
-**all six of Go's 64-bit SIMD targets** — `amd64`, `arm64`, `ppc64le`, `s390x`,
-`riscv64`, `loong64` — and a portable scalar fallback everywhere else. No cgo, no
-`GOEXPERIMENT`, plain `go build`.
+Pure-Go **Stream VByte** integer (`uint32`) compression with a SIMD **encoder and
+decoder** on **all six of Go's 64-bit SIMD targets** — `amd64`, `arm64`,
+`ppc64le`, `s390x`, `riscv64`, `loong64` — and a portable scalar fallback
+everywhere else. No cgo, no `GOEXPERIMENT`, plain `go build`.
 
 Stream VByte is the byte-oriented integer codec of Lemire, Kurz & Rupp
 ([arXiv:1709.08990](https://arxiv.org/abs/1709.08990)). A `[]uint32` is stored as
 a **control stream** of 2-bit lengths (one byte per four integers) followed by a
-**data stream** of each integer's significant little-endian bytes (1–4). Decode
-is the SIMD star: each control byte indexes a 256-entry shuffle LUT that, in a
-single `PSHUFB` / `VTBL` / `VPERM` / `vrgather` / `vshuf.b`, spreads four packed
-integers' bytes into four zero-extended `uint32` lanes.
+**data stream** of each integer's significant little-endian bytes (1–4). Each
+control byte indexes a 256-entry shuffle LUT that, in a single `PSHUFB` / `VTBL` /
+`VPERM` / `vrgather` / `vshuf.b`, **decodes** four packed integers' bytes into
+four zero-extended `uint32` lanes — or, with the mirror-image LUT, **encodes**
+four `uint32` lanes by compacting their significant bytes back into the data
+stream. (Per-group length classification stays scalar; the byte movement is the
+vectorised part.)
 
 The wire format is **byte-for-byte identical to the reference C library**
 ([github.com/lemire/streamvbyte](https://github.com/lemire/streamvbyte), standard
@@ -56,14 +61,26 @@ API:
 `Decode(Encode(x))` round-trips exactly. The count `n` is **not** stored in the
 stream (store it yourself), matching the reference format.
 
-## How the SIMD decoder works
+## How the SIMD kernels work
 
-Per group of four integers the kernel loads 16 data bytes, looks up the control
-byte's 16-byte shuffle mask, performs one vector permute that drops each
-integer's bytes into a zero-extended lane, and stores 16 result bytes. The Go
+**Decode.** Per group of four integers the kernel loads 16 data bytes, looks up
+the control byte's 16-byte shuffle mask, performs one vector permute that drops
+each integer's bytes into a zero-extended lane, and stores 16 result bytes. The Go
 wrapper runs the kernel only over groups that have a full 16-byte data lookahead
 and finishes the `< 4` remainder (and any short-input tail) with the shared
 scalar decoder, so the wide load never over-reads.
+
+**Encode** is the inverse. The Go wrapper classifies each group's four integers
+into 2-bit length codes (the control byte) and walks the resulting per-group data
+lengths; the kernel then, per group, loads the 16 source bytes, looks up the
+control byte's **compaction** mask (the mirror of the decode LUT), permutes the
+significant low bytes of each lane contiguously into the data stream, and stores
+16 bytes at the running data cursor (only `1..16` of them significant; the rest
+are overwritten by the next group). The kernel runs only over groups with a full
+16-byte store lookahead; the `< 4` remainder uses the shared scalar encoder. Both
+directions share the 256-entry LUT family in `tables.go`, so the wire bytes are
+identical on every path. Length classification stays scalar, so encode's SIMD
+speedup is smaller than decode's.
 
 * **amd64** — `PSHUFB` (SSSE3; runtime-detected via `golang.org/x/sys/cpu`,
   scalar fallback otherwise).
@@ -72,14 +89,16 @@ scalar decoder, so the wide load never over-reads.
 * **loong64** — `vshuf.b` (LSX) with a zero companion register.
 * **ppc64le** — `VPERM` on POWER8+ (`LXVB16X` / `STXVB16X` byte-order-stable
   loads keep the index == memory-offset identity; zero companion register).
-* **s390x** — `VPERM` on z13+. **Big-endian:** a decoded `uint32` is stored
-  most-significant-byte-first while the data stream stays LSB-first, so the
-  shuffle table reverses each lane's bytes (see `tables.go`/`permTableBE`). The
-  byte order is pinned by a position-dependent test.
+* **s390x** — `VPERM` on z13+. **Big-endian:** a `uint32` is stored
+  most-significant-byte-first while the data stream stays LSB-first, so the LUT
+  reverses each lane's bytes (decode `permTableBE`, encode
+  `encodeShuffleTablePermBE`; see `tables.go`). The byte order is pinned by a
+  position-dependent test.
 
-The decode assembly is generated by
-[go-asmgen](https://github.com/go-asmgen/asmgen); regenerate with
-`go run decode_<arch>_gen.go` (the `.s` files are committed).
+Each arch has both a decode and an encode kernel using the same primitive. The
+assembly is generated by [go-asmgen](https://github.com/go-asmgen/asmgen);
+regenerate with `go run decode_<arch>_gen.go` / `go run encode_<arch>_gen.go` (the
+`.s` files are committed).
 
 ## Performance
 
@@ -92,11 +111,19 @@ The decode assembly is generated by
 | **ppc64le / s390x** | qemu-validated; native perf pending | — | — |
 | **riscv64 / loong64** | qemu-validated; native perf pending | — | — |
 
-\* The amd64 figure was measured inside an emulated x86-64 VM (no hardware
-virtualization on the development host), so it understates native silicon by a
-large margin; treat it as a correctness-grade lower bound, not a hardware number.
-Throughput is `len(src)*4` bytes per decoded slice. Decode is the algorithm's
-strong suit; encode is scalar and runs at a few GB/s.
+| Target | Encode (SIMD) | Encode (scalar) | Speedup |
+|---|---|---|---|
+| **arm64** (Apple M-series, native) | ~2.23 GB/s | ~2.06 GB/s | ~1.08× |
+| **amd64** (emulated VM*) | ~0.24 GB/s | ~0.20 GB/s | ~1.2× |
+| **ppc64le / s390x** | qemu-validated; native perf pending | — | — |
+| **riscv64 / loong64** | qemu-validated; native perf pending | — | — |
+
+\* The amd64 figures were measured inside an emulated x86-64 VM (no hardware
+virtualization on the development host), so they understate native silicon by a
+large margin; treat them as correctness-grade lower bounds, not hardware numbers.
+Throughput is `len(src)*4` bytes per slice. Decode is the algorithm's strong suit
+(the whole hot loop vectorises); encode's gain is modest because only the byte
+compaction is vectorised — the per-group length classification stays scalar.
 
 ### Other Go ports
 
@@ -106,8 +133,8 @@ Existing Go implementations
 [mhr3/streamvbyte](https://github.com/mhr3/streamvbyte),
 [nelz9999/stream-vbyte-go](https://github.com/nelz9999/stream-vbyte-go)) ship
 SIMD only for **amd64** (and scalar elsewhere). This package is, to our
-knowledge, the first to provide a SIMD decoder on all six of Go's 64-bit SIMD
-architectures from one code base.
+knowledge, the first to provide SIMD encode and decode on all six of Go's 64-bit
+SIMD architectures from one code base.
 
 ## Validation
 
