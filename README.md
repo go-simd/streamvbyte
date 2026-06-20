@@ -109,16 +109,18 @@ regenerate with `go run decode_<arch>_gen.go` / `go run encode_<arch>_gen.go` (t
 | **arm64** (Apple M-series, native) | ~18.6 GB/s | ~1.9 GB/s | ~10× |
 | **amd64** (emulated VM*) | ~0.73 GB/s | ~0.32 GB/s | ~2.3× |
 | **ppc64le** (POWER10, VSX, native) | ~3695 MB/s | ~311 MB/s | ~11.9× |
+| **riscv64** (SpacemiT X60, RVV 1.0, native) | ~829 MB/s | ~184 MB/s | ~4.5× |
 | **s390x** | qemu-validated; native perf pending | — | — |
-| **riscv64 / loong64** | qemu-validated; native perf pending | — | — |
+| **loong64** | qemu-validated; native perf pending | — | — |
 
 | Target | Encode (SIMD) | Encode (scalar) | Speedup |
 |---|---|---|---|
 | **arm64** (Apple M-series, native) | ~2.23 GB/s | ~2.06 GB/s | ~1.08× |
 | **amd64** (emulated VM*) | ~0.24 GB/s | ~0.20 GB/s | ~1.2× |
 | **ppc64le** (POWER10, VSX, native) | full SIMD encode+decode | — | — |
+| **riscv64** (SpacemiT X60, RVV 1.0, native) | full SIMD encode+decode | — | — |
 | **s390x** | qemu-validated; native perf pending | — | — |
-| **riscv64 / loong64** | qemu-validated; native perf pending | — | — |
+| **loong64** | qemu-validated; native perf pending | — | — |
 
 \* The amd64 figures were measured inside an emulated x86-64 VM (no hardware
 virtualization on the development host), so they understate native silicon by a
@@ -129,8 +131,13 @@ compaction is vectorised — the per-group length classification stays scalar.
 
 Measured on real POWER10 (ppc64le VSX, [GCC Compile Farm](https://portal.cfarm.net/),
 Go 1.26.4, June 2026): SIMD decode ~11.9× the scalar baseline (3695 vs 311 MB/s),
-plus full SIMD encode+decode. s390x throughput stays an estimate/pending — no
-GitHub-hosted IBM Z runner — so we never quote a native s390x number.
+plus full SIMD encode+decode. Also measured on real riscv64 (SpacemiT X60, RVV 1.0,
+GCC Compile Farm, Go 1.26.4, June 2026): SIMD decode ~4.5× the scalar baseline
+(829 vs 184 MB/s). The X60 is a low-power *in-order* RVV 1.0 core — currently the
+only widely-available RVV silicon — so this `vrgather`-bound decode would likely
+do better on an out-of-order RVV part; treat it as a real but conservative win.
+s390x throughput stays an estimate/pending — no GitHub-hosted IBM Z runner — so we
+never quote a native s390x number.
 
 ### Other Go ports
 
@@ -148,8 +155,9 @@ SIMD architectures from one code base.
 Round-trip table tests plus `FuzzRoundTrip` (`Decode(Encode(x)) == x`) run with
 **100% statement coverage** on every architecture: `amd64` and `arm64` natively,
 and `ppc64le`, `s390x`, `riscv64`, `loong64` under QEMU (the same matrix the CI
-runs). `ppc64le` is additionally exercised natively on real POWER10 silicon (GCC
-Compile Farm). The portable scalar fallback is also build+test validated on
+runs). `ppc64le` and `riscv64` are additionally exercised natively on real
+POWER10 / SpacemiT X60 (RVV 1.0) silicon (GCC Compile Farm). The portable scalar
+fallback is also build+test validated on
 `ppc64` (big-endian) on real POWER9 silicon — proving it bit-exact on a
 big-endian target distinct from s390x's vector kernel. So: **six SIMD targets,
 validated on seven architectures.** Format interop with the reference C library
