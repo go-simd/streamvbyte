@@ -108,19 +108,19 @@ regenerate with `go run decode_<arch>_gen.go` / `go run encode_<arch>_gen.go` (t
 |---|---|---|---|
 | **arm64** (Apple M-series, native) | ~18.6 GB/s | ~1.9 GB/s | ~10× |
 | **amd64** (emulated VM*) | ~0.73 GB/s | ~0.32 GB/s | ~2.3× |
-| **ppc64le** (POWER10, VSX, native) | ~3695 MB/s | ~311 MB/s | ~11.9× |
+| **ppc64le** (POWER9, VSX, native) | ~3695 MB/s | ~311 MB/s | ~11.6× |
 | **riscv64** (SpacemiT X60, RVV 1.0, native) | ~829 MB/s | ~184 MB/s | ~4.5× |
 | **s390x** | qemu-validated; native perf pending | — | — |
-| **loong64** | qemu-validated; native perf pending | — | — |
+| **loong64** (Loongson 3A5000, LSX, native) | ~11.8× scalar (real silicon, 2026-06-26) | — | ~11.8× |
 
 | Target | Encode (SIMD) | Encode (scalar) | Speedup |
 |---|---|---|---|
 | **arm64** (Apple M-series, native) | ~2.23 GB/s | ~2.06 GB/s | ~1.08× |
 | **amd64** (emulated VM*) | ~0.24 GB/s | ~0.20 GB/s | ~1.2× |
-| **ppc64le** (POWER10, VSX, native) | full SIMD encode+decode | — | — |
+| **ppc64le** (POWER9, VSX, native) | full SIMD encode+decode | — | — |
 | **riscv64** (SpacemiT X60, RVV 1.0, native) | full SIMD encode+decode | — | — |
 | **s390x** | qemu-validated; native perf pending | — | — |
-| **loong64** | qemu-validated; native perf pending | — | — |
+| **loong64** (Loongson 3A5000, LSX, native) | full SIMD encode+decode | — | — |
 
 \* The amd64 figures were measured inside an emulated x86-64 VM (no hardware
 virtualization on the development host), so they understate native silicon by a
@@ -129,13 +129,16 @@ Throughput is `len(src)*4` bytes per slice. Decode is the algorithm's strong sui
 (the whole hot loop vectorises); encode's gain is modest because only the byte
 compaction is vectorised — the per-group length classification stays scalar.
 
-Measured on real POWER10 (ppc64le VSX, [GCC Compile Farm](https://portal.cfarm.net/),
-Go 1.26.4, June 2026): SIMD decode ~11.9× the scalar baseline (3695 vs 311 MB/s),
+Measured on real POWER9 (ppc64le VSX, [GCC Compile Farm](https://portal.cfarm.net/),
+Go 1.26.4, 2026-06-26): SIMD decode ~11.6× the scalar baseline (3695 vs 311 MB/s),
 plus full SIMD encode+decode. Also measured on real riscv64 (SpacemiT X60, RVV 1.0,
-GCC Compile Farm, Go 1.26.4, June 2026): SIMD decode ~4.5× the scalar baseline
+GCC Compile Farm, Go 1.26.4, 2026-06-26): SIMD decode ~4.5× the scalar baseline
 (829 vs 184 MB/s). The X60 is a low-power *in-order* RVV 1.0 core — currently the
 only widely-available RVV silicon — so this `vrgather`-bound decode would likely
 do better on an out-of-order RVV part; treat it as a real but conservative win.
+Also measured on real loong64 (Loongson 3A5000, LSX, GCC Compile Farm cfarm401,
+Go 1.26.4, 2026-06-26): SIMD decode ~11.8× the scalar baseline, plus full SIMD
+encode+decode (correctness-validated on real silicon).
 s390x throughput stays an estimate/pending — no GitHub-hosted IBM Z runner — so we
 never quote a native s390x number.
 
@@ -156,7 +159,7 @@ Round-trip table tests plus `FuzzRoundTrip` (`Decode(Encode(x)) == x`) run with
 **100% statement coverage** on every architecture: `amd64` and `arm64` natively,
 and `ppc64le`, `s390x`, `riscv64`, `loong64` under QEMU (the same matrix the CI
 runs). `ppc64le` and `riscv64` are additionally exercised natively on real
-POWER10 / SpacemiT X60 (RVV 1.0) silicon (GCC Compile Farm). The portable scalar
+POWER9 / SpacemiT X60 (RVV 1.0) silicon (GCC Compile Farm). The portable scalar
 fallback is also build+test validated on
 `ppc64` (big-endian) on real POWER9 silicon — proving it bit-exact on a
 big-endian target distinct from s390x's vector kernel. So: **six SIMD targets,
