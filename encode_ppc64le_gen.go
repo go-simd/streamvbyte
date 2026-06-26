@@ -1,8 +1,10 @@
 //go:build ignore
 
 // Command gen produces encode_ppc64le.s with go-asmgen: the VMX VPERM Stream
-// VByte compaction (encode) kernel encodeGroupsVSX for POWER8+ (VSX/VMX baseline,
-// no runtime dispatch) — the inverse of decodeGroupsVSX.
+// VByte compaction (encode) kernel encodeGroupsVSX — the inverse of
+// decodeGroupsVSX. The kernel uses ISA-3.0 (POWER9) instructions
+// (LXVB16X/STXVB16X), which raise SIGILL on POWER8, so the dispatcher gates it on
+// cpu.PPC64.IsPOWER9 and falls back to the scalar codec (encodeTail) on POWER8.
 //
 // Per group of four uint32:
 //   - load the precomputed control byte ctrl[g];
