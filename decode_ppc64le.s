@@ -14,6 +14,8 @@ TEXT ·decodeGroupsVSX(SB), NOSPLIT, $0-56
 	MOVD $0, R9
 	MOVD $0, R10
 	VSPLTISB $0, V2
+	MOVD $svbrev<>(SB), R11
+	LXVD2X (R11)(R0), VS63
 loop:
 	CMP R9, R6
 	BGE done
@@ -21,13 +23,16 @@ loop:
 	MOVBZ (R11), R12
 	SLD $4, R12, R14
 	ADD R7, R14, R14
-	LXVB16X (R14), VS33
+	LXVD2X (R14)(R0), VS33
+	VPERM V1, V1, V31, V1
 	ADD R5, R10, R15
-	LXVB16X (R15), VS32
+	LXVD2X (R15)(R0), VS32
+	VPERM V0, V0, V31, V0
 	VPERM V0, V2, V1, V3
 	SLD $4, R9, R16
 	ADD R3, R16, R16
-	STXVB16X VS35, (R16)
+	VPERM V3, V3, V31, V30
+	STXVD2X VS62, (R16)(R0)
 	ADD R8, R12, R17
 	MOVBZ (R17), R18
 	ADD R10, R18, R10
@@ -36,4 +41,22 @@ loop:
 done:
 	MOVD R10, ret+48(FP)
 	RET
+
+DATA svbrev<>+0(SB)/1, $0x00
+DATA svbrev<>+1(SB)/1, $0x01
+DATA svbrev<>+2(SB)/1, $0x02
+DATA svbrev<>+3(SB)/1, $0x03
+DATA svbrev<>+4(SB)/1, $0x04
+DATA svbrev<>+5(SB)/1, $0x05
+DATA svbrev<>+6(SB)/1, $0x06
+DATA svbrev<>+7(SB)/1, $0x07
+DATA svbrev<>+8(SB)/1, $0x08
+DATA svbrev<>+9(SB)/1, $0x09
+DATA svbrev<>+10(SB)/1, $0x0a
+DATA svbrev<>+11(SB)/1, $0x0b
+DATA svbrev<>+12(SB)/1, $0x0c
+DATA svbrev<>+13(SB)/1, $0x0d
+DATA svbrev<>+14(SB)/1, $0x0e
+DATA svbrev<>+15(SB)/1, $0x0f
+GLOBL svbrev<>(SB), RODATA|NOPTR, $16
 

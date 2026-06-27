@@ -6,21 +6,22 @@ import (
 	"bytes"
 	"math/rand"
 	"testing"
-
-	"golang.org/x/sys/cpu"
 )
 
 // TestDispatchPPC64LE drives both the encode and decode kernels down both of
 // their branches — the VSX kernel and the scalar codec fallback (encodeTail /
-// decodeTail with groups==0). The kernels emit ISA-3.0 (POWER9) instructions
-// (LXVB16X/STXVB16X) that raise SIGILL on POWER8, so the kernel-forcing branch
-// runs only when the host is actually POWER9+ (mirroring the amd64 force tests).
-// The scalar-fallback branch is always exercised. The power9-targeted QEMU CI job
-// and the native POWER9/POWER10 farm runs cover the kernel branch. Each variant
-// is checked against the independent refEncode reference plus a full round trip.
+// decodeTail with groups==0). The kernels are built from ISA-2.07
+// (POWER8-baseline) ops only (the element-order load/store is emitted as
+// LXVD2X/STXVD2X + a VPERM byte-reversal, not the ISA-3.0 LXVB16X/STXVB16X), so
+// neither SIGILLs on POWER8; both kernel branches are exercised unconditionally
+// here. (At runtime the encode kernel is POWER9-gated on perf grounds — see
+// encode_ppc64le.go — but for differential correctness the test forces it on
+// regardless.) The QEMU power8 and power9 CI jobs plus the native POWER8E/POWER9
+// farm runs all cover the kernel branch. Each variant is checked against the
+// independent refEncode reference plus a full round trip.
 func TestDispatchPPC64LE(t *testing.T) {
-	saved := hasVSX
-	defer func() { hasVSX = saved }()
+	savedD, savedE := hasVSXDecode, hasVSXEncode
+	defer func() { hasVSXDecode, hasVSXEncode = savedD, savedE }()
 
 	rng := rand.New(rand.NewSource(7))
 	check := func(label string) {
@@ -58,15 +59,21 @@ func TestDispatchPPC64LE(t *testing.T) {
 	}
 
 	// Scalar fallback: always safe on every ppc64le host (POWER8 included).
-	hasVSX = false
+	hasVSXDecode, hasVSXEncode = false, false
 	check("fallback")
 
-	// VSX kernel: only force it on when the CPU is POWER9+, otherwise the
-	// LXVB16X/STXVB16X in the kernels would SIGILL (e.g. on a POWER8 farm node).
-	if !cpu.PPC64.IsPOWER9 {
-		t.Log("CPU is pre-POWER9; VSX kernel branch not exercised on this host")
-		return
-	}
-	hasVSX = true
+	// VSX kernels: ISA-2.07 baseline, so both run on every ppc64le host (POWER8+);
+	// force them on unconditionally for differential correctness.
+	hasVSXDecode, hasVSXEncode = true, true
 	check("kernel")
+}
+
+// forceEncodeKernel forces the (POWER9-gated) encode VSX kernel on for the
+// duration of a test, so the encodeSafeGroups tight-buffer guard is exercised on
+// POWER8 too (where the kernel is otherwise off at runtime). Restored on cleanup.
+func forceEncodeKernel(t *testing.T) {
+	t.Helper()
+	saved := hasVSXEncode
+	t.Cleanup(func() { hasVSXEncode = saved })
+	hasVSXEncode = true
 }

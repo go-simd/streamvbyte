@@ -12,6 +12,7 @@ import "testing"
 // keeps the simpler EncodedMaxLen contract; this white-box test validates the
 // guard that makes a tight buffer safe.
 func TestEncodeTightBuffer(t *testing.T) {
+	forceEncodeKernel(t)
 	for _, n := range []int{1, 4, 5, 8, 9, 16, 17, 33, 64, 100} {
 		src := make([]uint32, n)
 		for i := range src {
