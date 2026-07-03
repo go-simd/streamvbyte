@@ -110,7 +110,7 @@ regenerate with `go run decode_<arch>_gen.go` / `go run encode_<arch>_gen.go` (t
 | **amd64** (emulated VM*) | ~0.73 GB/s | ~0.32 GB/s | ~2.3× |
 | **ppc64le** (POWER9, VSX, native) | ~3695 MB/s | ~311 MB/s | ~11.6× |
 | **riscv64** (SpacemiT X60, RVV 1.0, native) | ~829 MB/s | ~184 MB/s | ~4.5× |
-| **s390x** | qemu-validated; native perf pending | — | — |
+| **s390x** (z15, VXE2, LPAR, 2026-07-03) | ~1931 MB/s | ~525 MB/s | ~3.7× |
 | **loong64** (Loongson 3A5000, LSX, native) | ~11.8× scalar (real silicon, 2026-06-26) | — | ~11.8× |
 
 | Target | Encode (SIMD) | Encode (scalar) | Speedup |
@@ -119,7 +119,7 @@ regenerate with `go run decode_<arch>_gen.go` / `go run encode_<arch>_gen.go` (t
 | **amd64** (emulated VM*) | ~0.24 GB/s | ~0.20 GB/s | ~1.2× |
 | **ppc64le** (POWER9, VSX, native) | full SIMD encode+decode | — | — |
 | **riscv64** (SpacemiT X60, RVV 1.0, native) | full SIMD encode+decode | — | — |
-| **s390x** | qemu-validated; native perf pending | — | — |
+| **s390x** (z15, VXE2, LPAR, 2026-07-03) | ~1814 MB/s | ~284 MB/s | **~6.4×** |
 | **loong64** (Loongson 3A5000, LSX, native) | full SIMD encode+decode | — | — |
 
 \* The amd64 figures were measured inside an emulated x86-64 VM (no hardware
@@ -139,8 +139,9 @@ do better on an out-of-order RVV part; treat it as a real but conservative win.
 Also measured on real loong64 (Loongson 3A5000, LSX, GCC Compile Farm cfarm401,
 Go 1.26.4, 2026-06-26): SIMD decode ~11.8× the scalar baseline, plus full SIMD
 encode+decode (correctness-validated on real silicon).
-s390x throughput stays an estimate/pending — no GitHub-hosted IBM Z runner — so we
-never quote a native s390x number.
+s390x is now measured on real z15 (LPAR guest, VXE2, Ubuntu 6.8, go1.26.4,
+2026-07-03): decode 1931 MB/s = 3.7× stdlib, encode 1814 MB/s = 6.4× stdlib.
+Retracts the earlier estimate/pending phrasing.
 
 ### Other Go ports
 
